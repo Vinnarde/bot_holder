@@ -1,0 +1,18 @@
+[Unit]
+Description=Redirector Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/redirector
+ExecStart=/opt/redirector/redirector
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=redirector
+
+[Install]
+WantedBy=multi-user.target 
