@@ -1,9 +1,20 @@
 port: 8080
-base_redirect_url: "https://cskinmasters.com"
-expect_bot_param: "request_hash"
-expect_bot_value: "v07N4wzsJHP5mCRn44x6Mtzib8VeFzTC"
-bot_cookie_name: "visit"
-bot_cookie_value: "P5mCRn44x6Mtzib"
-page_template: "index%d.html"
-min_redirect_seconds: 3
-max_redirect_seconds: 5
+domains:
+  cskinmasters.com:
+    base_redirect_url: "https://cskinmasters.com"
+    expect_bot_param: "request_hash"
+    expect_bot_value: "v07N4wzsJHP5mCRn44x6Mtzib8VeFzTC"
+    bot_cookie_name: "visit"
+    bot_cookie_value: "P5mCRn44x6Mtzib"
+    page_template: "index%d.html"
+    min_redirect_seconds: 3
+    max_redirect_seconds: 5
+  example.com:
+    base_redirect_url: "https://example.com"
+    expect_bot_param: "request_hash"
+    expect_bot_value: "different_value_for_example"
+    bot_cookie_name: "visit"
+    bot_cookie_value: "different_cookie_value"
+    page_template: "page%d.html"
+    min_redirect_seconds: 2
+    max_redirect_seconds: 4

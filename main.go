@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,14 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ConfigManager struct {
-	config     *Config
-	configPath string
-	mutex      sync.RWMutex
-}
-
-type Config struct {
-	Port               int    `yaml:"port"`
+type DomainConfig struct {
 	BaseRedirectURL    string `yaml:"base_redirect_url"`
 	ExpectBotParam     string `yaml:"expect_bot_param"`
 	ExpectBotValue     string `yaml:"expect_bot_value"`
@@ -30,6 +25,17 @@ type Config struct {
 	PageTemplate       string `yaml:"page_template"`
 	MinRedirectSeconds int    `yaml:"min_redirect_seconds"`
 	MaxRedirectSeconds int    `yaml:"max_redirect_seconds"`
+}
+
+type Config struct {
+	Port    int                     `yaml:"port"`
+	Domains map[string]DomainConfig `yaml:"domains"`
+}
+
+type ConfigManager struct {
+	config     *Config
+	configPath string
+	mutex      sync.RWMutex
 }
 
 func NewConfigManager(configPath string) (*ConfigManager, error) {
@@ -52,6 +58,23 @@ func (cm *ConfigManager) GetConfig() Config {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 	return *cm.config
+}
+
+func (cm *ConfigManager) GetDomainConfig(domain string) (*DomainConfig, error) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	if config, exists := cm.config.Domains[domain]; exists {
+		return &config, nil
+	}
+
+	for d, config := range cm.config.Domains {
+		if strings.HasSuffix(domain, "."+d) {
+			return &config, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no configuration found for domain: %s", domain)
 }
 
 func (cm *ConfigManager) loadConfig() error {
@@ -87,7 +110,6 @@ func (cm *ConfigManager) watchConfig() error {
 				if !ok {
 					return
 				}
-				// Check if the config file was modified
 				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
 					log.Println("Config file changed, reloading...")
 					if err := cm.loadConfig(); err != nil {
@@ -111,6 +133,20 @@ func (cm *ConfigManager) watchConfig() error {
 	return nil
 }
 
+func getDomainFromHost(host string) string {
+	host = strings.Split(host, ":")[0]
+
+	if host == "localhost" || net.ParseIP(host) != nil {
+		return host
+	}
+
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return host
+}
+
 func main() {
 	configPath := "config.yaml"
 
@@ -125,69 +161,69 @@ func main() {
 		Views: engine,
 	})
 
+	app.Use(func(c *fiber.Ctx) error {
+		domain := getDomainFromHost(c.Hostname())
+
+		domainConfig, err := configManager.GetDomainConfig(domain)
+		if err != nil {
+			log.Printf("Error getting domain config for %s: %v\n", domain, err)
+			return c.SendStatus(fiber.StatusNotFound)
+		}
+
+		c.Locals("domainConfig", domainConfig)
+		return c.Next()
+	})
+
 	app.Get("/", func(c *fiber.Ctx) error {
-		config := configManager.GetConfig()
+		domainConfig := c.Locals("domainConfig").(*DomainConfig)
 
-		botValue := c.Query(config.ExpectBotParam)
-		cookie := c.Cookies(config.BotCookieName)
+		botValue := c.Query(domainConfig.ExpectBotParam)
+		cookie := c.Cookies(domainConfig.BotCookieName)
 
-		if botValue != config.ExpectBotValue && cookie != config.BotCookieValue {
-			return c.Redirect(config.BaseRedirectURL)
+		if botValue != domainConfig.ExpectBotValue && cookie != domainConfig.BotCookieValue {
+			return c.Redirect(domainConfig.BaseRedirectURL)
 		}
 
 		c.Cookie(&fiber.Cookie{
-			Name:    config.BotCookieName,
-			Value:   config.BotCookieValue,
+			Name:    domainConfig.BotCookieName,
+			Value:   domainConfig.BotCookieValue,
 			Expires: time.Now().Add(365 * 24 * time.Hour),
 		})
 
 		return c.Render("index", fiber.Map{
-			"PageTemplate":       config.PageTemplate,
-			"MinRedirectSeconds": config.MinRedirectSeconds,
-			"MaxRedirectSeconds": config.MaxRedirectSeconds,
+			"PageTemplate":       domainConfig.PageTemplate,
+			"MinRedirectSeconds": domainConfig.MinRedirectSeconds,
+			"MaxRedirectSeconds": domainConfig.MaxRedirectSeconds,
 		})
 	})
 
 	app.Get("/index:id.html", func(c *fiber.Ctx) error {
-		config := configManager.GetConfig()
+		domainConfig := c.Locals("domainConfig").(*DomainConfig)
 
 		id := c.Params("id")
+
 		_, err := strconv.Atoi(id)
 		if err != nil {
 			return c.Redirect("/")
 		}
 
-		botValue := c.Query(config.ExpectBotParam)
-		cookie := c.Cookies(config.BotCookieName)
+		botValue := c.Query(domainConfig.ExpectBotParam)
+		cookie := c.Cookies(domainConfig.BotCookieName)
 
-		if botValue != config.ExpectBotValue && cookie != config.BotCookieValue {
-			return c.Redirect(config.BaseRedirectURL)
+		if botValue != domainConfig.ExpectBotValue && cookie != domainConfig.BotCookieValue {
+			return c.Redirect(domainConfig.BaseRedirectURL)
 		}
 
 		c.Cookie(&fiber.Cookie{
-			Name:    config.BotCookieName,
-			Value:   config.BotCookieValue,
+			Name:    domainConfig.BotCookieName,
+			Value:   domainConfig.BotCookieValue,
 			Expires: time.Now().Add(365 * 24 * time.Hour),
 		})
 
 		return c.Render("index", fiber.Map{
-			"PageTemplate":       config.PageTemplate,
-			"MinRedirectSeconds": config.MinRedirectSeconds,
-			"MaxRedirectSeconds": config.MaxRedirectSeconds,
-		})
-	})
-
-	app.Get("/status", func(c *fiber.Ctx) error {
-		config := configManager.GetConfig()
-		return c.JSON(fiber.Map{
-			"status": "running",
-			"config": fiber.Map{
-				"port":               config.Port,
-				"baseRedirectUrl":    config.BaseRedirectURL,
-				"minRedirectSeconds": config.MinRedirectSeconds,
-				"maxRedirectSeconds": config.MaxRedirectSeconds,
-				"pageTemplate":       config.PageTemplate,
-			},
+			"PageTemplate":       domainConfig.PageTemplate,
+			"MinRedirectSeconds": domainConfig.MinRedirectSeconds,
+			"MaxRedirectSeconds": domainConfig.MaxRedirectSeconds,
 		})
 	})
 
