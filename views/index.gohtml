@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Document</title>
+</head>
+<body>
+<script>
+  window.onbeforeunload = function() {
+    return true;
+  };
+
+  setTimeout(function () {
+    let template = '{{.PageTemplate}}';
+    window.onbeforeunload = null // reset
+
+    const newLocation = window.location.origin + "/" + template.replace('%d', getRandomInt(1, 99));
+    console.log(newLocation);
+		window.location.replace(newLocation);
+  }, getRandomInt({{.MinRedirectSeconds}}, {{.MaxRedirectSeconds}}) * 1000)
+
+  function getRandomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+</script>
+</body>
+</html> 
